@@ -121,6 +121,22 @@ out_2.wav -> 欢 迎 来 到 [昇腾] 三 一 零 p 语 音 合 成 测 试 这 
 
 完整 70 算子实测矩阵与复现探针见 [docs/](docs/) 与 [probes/](probes/)。
 
+## 📦 多模型适配（IndexTeam 全家桶）
+
+除 IndexTTS-2.5 外，以下模型已在同一块 310P3 芯片上实测跑通（脚本见 `scripts/`，结论详见 [docs/llm-models-310p.md](docs/llm-models-310p.md)）：
+
+| 模型 | 速度 | 备注 |
+|---|---|---|
+| Index-Translate-2B / **9B** | 6~8 / 2.1~2.3 tok/s | 150 语向翻译 + 图片翻译底座；9B 需 `enable_thinking=False` |
+| Index-Homura-2B | 5.8~7.3 tok/s | 音节控制翻译（配音对口型），与 Translate 同配方 |
+| Index-1.9B-Chat | 8~11 tok/s | 需 transformers 4.5x 隔离栈（见下） |
+| IndexTTS-2.5 | RTF 5.6 | 见主文档 |
+
+两条路线 + 一个版本坑：
+- **Qwen3.5 底座**（Translate/Homura/Nailong）：transformers 5.21 原生支持，`attn_implementation="eager"` + fp16 + `allow_internal_format=False` 三件套直接跑；vLLM 路线当前被 310P FA 内核缺陷阻塞（详见 docs）。
+- **自研架构**（Index-1.9B）：`trust_remote_code` + transformers 4.52 隔离栈（新版 rope_scaling 结构变化会让上游代码 KeyError）。
+- 35B-A3B（MoE）架构路径一致，fp16 权重 ~70GB 需 TP2 双芯片，未实测。
+
 ## 🗺️ 后续优化方向
 
 - GPT 自回归占 8s 大头：可试 torch_npu 图模式 / 迁移到 MindIE 部署
