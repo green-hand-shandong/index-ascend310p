@@ -1,0 +1,58 @@
+diff --git ascend-310p-research/index-tts-latest/indextts/utils/front.py indextts-310p/index-tts/indextts/utils/front.py
+index 2199262..aeacc33 100644
+--- a/indextts/utils/front.py
++++ b/indextts/utils/front.py
+@@ -119,7 +119,7 @@ class TextNormalizer:
+         import platform
+         if self.zh_normalizer is not None and self.en_normalizer is not None:
+             return
+-        if platform.system() != "Linux":  # Mac and Windows
++        if True:  # NPU移植: 统一使用纯Python的wetext，跳过WeTextProcessing/pynini的aarch64编译依赖
+             from wetext import Normalizer
+ 
+             self.zh_normalizer = Normalizer(remove_erhua=False, lang="zh", operator="tn")
+diff --git ascend-310p-research/index-tts-latest/indextts/gpt/transformers_gpt2.py indextts-310p/index-tts/indextts/gpt/transformers_gpt2.py
+index ab7fa96..a50fb52 100755
+--- a/indextts/gpt/transformers_gpt2.py
++++ b/indextts/gpt/transformers_gpt2.py
+@@ -593,7 +593,7 @@ class GPT2Block(nn.Module):
+         super().__init__()
+         hidden_size = config.hidden_size
+         inner_dim = config.n_inner if config.n_inner is not None else 4 * hidden_size
+-        attention_class = GPT2_ATTENTION_CLASSES[config._attn_implementation]
++        attention_class = GPT2_ATTENTION_CLASSES["eager"]  # NPU移植: 310P的SDPA 4D+mask路径不可用(ERR01007)，强制eager注意力
+ 
+         self.ln_1 = nn.LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
+         self.attn = attention_class(config=config, layer_idx=layer_idx)
+diff --git ascend-310p-research/index-tts-latest/indextts/infer_v2_5.py indextts-310p/index-tts/indextts/infer_v2_5.py
+index 2458379..e7d1c8e 100644
+--- a/indextts/infer_v2_5.py
++++ b/indextts/infer_v2_5.py
+@@ -172,19 +172,22 @@ class IndexTTS2:
+             aux_paths = ensure_models_available(self.model_dir)
+             w2v_bert_dir = aux_paths["w2v_bert"]
+         self.extract_features = SeamlessM4TFeatureExtractor.from_pretrained(w2v_bert_dir, local_files_only=True)
+-        self.semantic_model = Wav2Vec2BertModel.from_pretrained(w2v_bert_dir, local_files_only=True)
+-        self.semantic_model = self.semantic_model.to(self.device)
++        # NPU移植: w2v-bert/codec 只处理参考音频(每次请求一次)，310P的FFT内核不可用，
++        # 整条前端链钉在CPU上，避开SDPA 4D mask/复数算子问题
++        self.semantic_model = Wav2Vec2BertModel.from_pretrained(
++            w2v_bert_dir, local_files_only=True, attn_implementation="eager")
++        self.semantic_model = self.semantic_model.cpu()
+         self.semantic_model.eval()
+         stat_mean_var = torch.load(os.path.join(self.model_dir, self.cfg.w2v_stat))
+-        self.semantic_mean = stat_mean_var["mean"].to(self.device)
+-        self.semantic_std = torch.sqrt(stat_mean_var["var"]).to(self.device)
++        self.semantic_mean = stat_mean_var["mean"].cpu()
++        self.semantic_std = torch.sqrt(stat_mean_var["var"]).cpu()
+ 
+         start_time = time.perf_counter()
+         self.semantic_codec = EnhancedCodec(**self.cfg.semantic_codec, cfg=self.cfg.semantic_codec)
+         codec_ckpt_path = os.path.join(self.model_dir, "codec.pth")
+         self.semantic_codec.load_checkpoint(codec_ckpt_path)
+         print('>> semantic_codec weights restored from:', codec_ckpt_path)
+-        self.semantic_codec = self.semantic_codec.to(self.device)
++        self.semantic_codec = self.semantic_codec.cpu()
+         print('>> semantic_codec weights restored cost: ', time.perf_counter() - start_time)
+ 
+         s2mel_path = os.path.join(self.model_dir, self.cfg.s2mel_checkpoint)

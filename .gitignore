@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+workspace/
+checkpoints/
+*.pth
+*.safetensors
+*.bin
+*.wav
+*.pt
+!tests/*.wav

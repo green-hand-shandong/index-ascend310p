@@ -1,0 +1,8 @@
+This project adapts Bilibili's IndexTTS-2.5 (https://github.com/index-tts/index-tts)
+to Huawei Ascend 310P. It contains:
+  - Original code: npu_compat.py, scripts/, tests/, probes/, docs/, README (Apache-2.0)
+  - patches/0001-*.patch: modifications to upstream index-tts source code
+    (upstream is under the bilibili Model Use License; distributed here as diffs only)
+Auxiliary model weights referenced by the pipeline:
+  nvidia/bigvgan_v2_22khz_80band_256x (MIT), facebook/w2v-bert-2.0 (CC-BY-NC-4.0),
+  amphion/MaskGCT (MIT), funasr/campplus (Apache-2.0)
