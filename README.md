@@ -1,116 +1,158 @@
-# Index-Ascend310P：IndexTeam 模型 × 华为昇腾 Atlas 300I Duo（Ascend 310P3）推理适配合集
+# Index-Ascend310P: Bilibili IndexTeam Models on Huawei Atlas 300I Duo (Ascend 310P3)
 
-**B站 IndexTeam 全家桶在华为昇腾 Atlas 300I Duo（Ascend 310P3，单芯片 44GB）上的推理适配——5 个模型全部实测跑通，含 2 个内核缺陷的定位与修复、70 算子真机支持度实测。**
+**All five flagship IndexTeam models fully ported and verified on a single Huawei Ascend 310P3 chip (Atlas 300I Duo, 44GB) — including localization & fixes for 2 vendor kernel bugs and an on-device 70-operator support matrix.**
 
-> English summary at the bottom. / 英文摘要见文末。
+> **English** | [简体中文](README_zh.md)
 
 ---
 
-## 🎯 一句话
+## 🎯 TL;DR
 
-在一颗 **Ascend 310P3** 芯片上，把 B站 IndexTeam 的 **IndexTTS-2.5（零样本音色克隆 TTS）、Index-Translate-2B/9B（150 语向翻译）、Index-Homura-2B（音节控制翻译）、Index-1.9B-Chat（对话 LLM）** 全部跑通：语音合成无削波且 ASR 回读可懂（RTF 5.6），翻译/对话输出正确（2~11 tok/s）。
+On one **Ascend 310P3** chip we run end-to-end: **IndexTTS-2.5** (zero-shot voice-cloning TTS), **Index-Translate-2B/9B** (150-language translation), **Index-Homura-2B** (syllable-controlled translation for dubbing) and **Index-1.9B-Chat** (conversational LLM) — speech with zero clipping verified by ASR round-trip (RTF 5.6), translation/dialogue outputs correct at 2~11 tok/s.
 
-## 🖥️ 硬件与软件环境
+## 🖥️ Hardware & Software
 
-| 项 | 配置 |
+| Item | Config |
 |---|---|
-| 硬件 | Atlas 300I Duo 服务器，**Ascend 310P3**（soc=202），实测使用单芯片（44GB 可用显存） |
-| 驱动 | npu-smi 25.5.1 |
-| 容器镜像 | `quay.io/ascend/vllm-ascend:v0.30.0rc2-310p`（CANN 9.2.0，Python 3.12.13） |
-| 推理框架 | torch 2.10.0 + torch_npu 2.10.0.post7；vLLM 0.30.0（vllm-ascend）；transformers 双栈 5.21 / 4.52.1 隔离共存 |
-| 主机 | aarch64 Linux，Docker 29 |
+| Hardware | Atlas 300I Duo server, **Ascend 310P3** (soc=202), single chip (44GB usable) |
+| Driver | npu-smi 25.5.1 |
+| Container image | `quay.io/ascend/vllm-ascend:v0.30.0rc2-310p` (CANN 9.2.0, Python 3.12.13) |
+| Frameworks | torch 2.10.0 + torch_npu 2.10.0.post7; vLLM 0.30.0 (vllm-ascend); transformers dual stack 5.21 / 4.52.1 isolated |
+| Host | aarch64 Linux, Docker 29 |
 
-## 📊 成果总表（模型名 × 实测状态）
+## 📊 Results Matrix (model × status)
 
-| 模型 | 用途 | 适配路线 | 实测速度 | 状态 |
+| Model | Task | Route | Measured speed | Status |
 |---|---|---|---|---|
-| **IndexTTS-2.5** | 零样本音色克隆 TTS（中英日西阿） | torch_npu 全栈（热路径 NPU + 前端 CPU） | RTF 5.6（6.14s 语音 34.6s 合成） | ✅ 跑通，无削波，ASR 回读通过 |
-| **Index-Translate-2B** | 150 语向文本/图片翻译底座 | transformers 5.21 + eager + fp16 | 6~8 tok/s，加载 5.9s | ✅ 三向翻译全对 |
-| **Index-Translate-9B** | 同上（思考型） | 同上 + `enable_thinking=False` | 2.1~2.3 tok/s，加载 12.5s | ✅ 三向翻译直接输出 |
-| **Index-Homura-2B** | 音节控制翻译（配音对口型） | 与 Translate-2B 完全同配方 | 5.8~7.3 tok/s | ✅ **零改动复用** |
-| **Index-1.9B-Chat** | 轻量对话 LLM（自研架构） | transformers 4.52 隔离栈 + trust_remote_code | 8~11 tok/s，加载 10.8s | ✅ 对话/问答/翻译正常 |
-| Index-Translate-35B-A3B | MoE 翻译 | 同 Qwen3.5 配方，fp16 需 ~70GB → TP2 双芯片 | — | ⏸ 架构路径一致，未实测（磁盘受限） |
-| Index-Nailong-2B/9B | 长文档翻译（229K 上下文） | 同 Qwen3.5 配方 | — | ⏸ 预期可用；长上下文受 310P 掩码物化限制（实用 ≤32K） |
-| Index-Echo S2TT/S2ST | 语音翻译 | 需 Qwen3-Omni 音频塔 + CosyVoice3 联合适配 | — | ❌ 未做，建议 910 级硬件 |
-| Index-anisora | 动漫视频生成 | CogVideoX/Wan2.1 扩散 | — | ❌ 310P 不可行 |
-| IndexTTS 1.x / 2 | 早期 TTS | — | — | ⏸ 2.5 已覆盖，无需重复 |
+| **IndexTTS-2.5** | Zero-shot voice-cloning TTS (zh/en/ja/es/ar) | torch_npu full stack (hot path NPU + frontend CPU) | RTF 5.6 (6.14s audio in 34.6s) | ✅ Works, zero clipping, ASR round-trip passed |
+| **Index-Translate-2B** | 150-language text/image translation | transformers 5.21 + eager + fp16 | 6~8 tok/s, 5.9s load | ✅ All 3 translation directions correct |
+| **Index-Translate-9B** | Same (thinking-mode) | Same + `enable_thinking=False` | 2.1~2.3 tok/s, 12.5s load | ✅ Direct translations |
+| **Index-Homura-2B** | Syllable-controlled translation (dubbing) | Identical to Translate-2B recipe | 5.8~7.3 tok/s | ✅ **Zero-change reuse** |
+| **Index-1.9B-Chat** | Lightweight chat LLM (custom arch) | transformers 4.52 isolated stack + trust_remote_code | 8~11 tok/s, 10.8s load | ✅ Dialog/QA/translation OK |
+| Index-Translate-35B-A3B | MoE translation | Same Qwen3.5 recipe; fp16 ~70GB → TP2 dual chip | — | ⏸ Not run (disk-limited); path identical |
+| Index-Nailong-2B/9B | Long-doc translation (229K ctx) | Same Qwen3.5 recipe | — | ⏸ Expected OK; long context capped by mask materialization (≤32K practical) |
+| Index-Echo S2TT/S2ST | Speech translation | Needs Qwen3-Omni audio tower + CosyVoice3 | — | ❌ Not attempted; recommend 910-class HW |
+| Index-anisora | Anime video generation | CogVideoX/Wan2.1 diffusion | — | ❌ Not feasible on 310P |
+| IndexTTS 1.x / 2 | Legacy TTS | — | — | ⏸ Superseded by 2.5 |
 
-## 🔊 模型实测详情
+## 🔊 Per-Model Details
 
-### IndexTTS-2.5（语音合成）
+### IndexTTS-2.5 (speech synthesis)
 
-- **结果**：22.05kHz 语音合成，稳态 **RTF 5.6**（首跑 11.4，含初始化）；峰值 0.49~0.54、RMS 0.075、**零削波**、无 NaN。
-- **质量验证**：用 paraformer ASR 回读合成音频，原文「欢迎来到昇腾三一零P语音合成测试，这段语音完全在国产算力上生成」第二遍 100% 还原（第一遍仅“昇腾”被 ASR 识别为同音字，属 ASR 生僻字问题非发音问题）。
-- **耗时分解**：GPT 自回归 8.0s + s2mel DiT(25步) 4.8s + BigVGAN 声码 1.6s；模型加载 53~64s。
-- **关键工作**：
-  1. 70 算子真机探针 → FFT 全家（stft/istft/fft/复数）内核级不支持 → 参考音频前端整体 CPU 化（每请求仅一次，开销可忽略）；
-  2. 生成热路径（GPT/DiT/BigVGAN）全 NPU：`transfer_to_npu` 垫片 + 三开关；
-  3. **修复 310P op-plugin 内核缺陷：`conv_transpose1d(groups>64)` 静默输出错误**——BigVGAN 抗混叠上采样（C=384/768）命中，导致 87% 采样点饱和。零精度损失等效实现修复（与 CPU 输出 max|d|=0，且比原生内核快 24%）；
-  4. 上游仅 3 个文件 ~10 行补丁（wetext 正则化、eager 注意力、前端链 CPU 化），其余全部由 `npu_compat.py` 运行时注入；
-  5. 全部辅助模型（w2v-bert-2.0 / BigVGAN / MaskGCT / CAMPPlus）预下载本地化，推理不联网。
+- **Result**: 22.05 kHz speech, steady-state **RTF 5.6** (first run 11.4 incl. warmup); peak 0.49~0.54, RMS 0.075, **zero clipping**, no NaN.
+- **Quality gate**: paraformer ASR round-trip on the synthesized audio — the sentence "欢迎来到昇腾三一零P语音合成测试，这段语音完全在国产算力上生成" was 100% recovered on the second run (first run: only "昇腾" homophone-recognized by ASR, an ASR-side artifact).
+- **Breakdown**: GPT autoregression 8.0s + s2mel DiT (25 steps) 4.8s + BigVGAN vocoder 1.6s; model load 53~64s.
+- **Key work**:
+  1. 70-operator on-device probe → FFT family (stft/istft/fft/complex) kernel-level unsupported → entire reference-audio frontend pinned to CPU (once per request, negligible);
+  2. Generation hot path (GPT/DiT/BigVGAN) fully on NPU: `transfer_to_npu` shim + three switches;
+  3. **Fixed a 310P op-plugin kernel bug: `conv_transpose1d(groups>64)` silently returns wrong results** — BigVGAN anti-aliased upsampling (C=384/768) hit it, saturating 87% of samples. Zero-loss equivalent implementation (max|d|=0 vs CPU, and faster than the native kernel);
+  4. Only 3 upstream files ~10 lines patched (wetext normalization, eager attention, frontend CPU pinning); everything else injected at runtime by `npu_compat.py`;
+  5. All auxiliary models (w2v-bert-2.0 / BigVGAN / MaskGCT / CAMPPlus) pre-downloaded for offline inference.
 
-### Index-Translate-2B / 9B / Index-Homura-2B（Qwen3.5 底座三兄弟）
+### Index-Translate-2B / 9B / Index-Homura-2B (Qwen3.5-based trio)
 
-- **结果**（三句固定语向抽查，中→英 / 英→中 / 中→日 全对）：
+- **Results** (three fixed sentences, zh→en / en→zh / zh→ja, all correct):
 
-| 模型 | 中→英示例 | 速度 |
+| Model | zh→en sample | Speed |
 |---|---|---|
 | Translate-2B | "The Ascend 310 processor is Huawei's AI acceleration card for edge inference." | 6~8 tok/s |
 | Translate-9B | "The Ascend 310 processor is an AI acceleration card from Huawei designed for edge inference." | 2.1~2.3 tok/s |
-| Homura-2B | 同 2B 水平 | 5.8~7.3 tok/s |
+| Homura-2B | Same quality as 2B | 5.8~7.3 tok/s |
 
-- **要点**：
-  1. vLLM 路线当前走不通：`flash_attention_prefill_24` 内核对 head_dim=256 形状 **aicore timeout**（EZ9999，权重加载与多模态 warmup 均正常，2048/4096 上下文均复现），详见 [docs/llm-models-310p.md](docs/llm-models-310p.md)；
-  2. transformers eager 路线三件套即可：`allow_internal_format=False` + `jit_compile=False` + `attn_implementation="eager"`，fp16 加载；
-  3. **9B 必须传 `enable_thinking=False`**，否则先输出一大段推理再翻译；
-  4. **Homura-2B 零改动复用** Translate 配方——同底座微调模型无任何额外工作。
+- **Notes**:
+  1. vLLM route currently blocked: the `flash_attention_prefill_24` kernel **aicore-timeouts** for head_dim=256 shapes (EZ9999; weights load and multimodal warmup both pass; reproduces at 2048/4096 ctx) — see [docs/llm-models-310p.md](docs/llm-models-310p.md) and the "unfinished attempts" section below;
+  2. The transformers eager recipe is just three switches: `allow_internal_format=False` + `jit_compile=False` + `attn_implementation="eager"`, loaded in fp16;
+  3. **9B requires `enable_thinking=False`**, otherwise it produces a long reasoning preamble before translating;
+  4. **Homura-2B reuses the Translate recipe with zero changes** — same-base fine-tunes need no extra work.
 
-### Index-1.9B-Chat（自研架构）
+### Index-1.9B-Chat (custom architecture)
 
-- **结果**：自我介绍/知识问答/翻译正常，8~11 tok/s。
-  - 「你好，请用一句话介绍你自己」→「我是一个由Bilibili研发的大语言模型……」
-  - 「把这句话翻译成英文：今天天气真不错」→「The weather is really nice today.」
-- **要点**：模型代码零改动（trust_remote_code），但其自定义 modeling 按 2023 年 transformers API 编写——transformers ≥5.x 的 `rope_scaling` 新结构会直接 KeyError。方案：隔离栈 `/opt/tf452`（transformers 4.52.1 + huggingface_hub 0.36.2 + tokenizers 0.21，`pip --target` 纯 Python 包注入），与系统栈 5.21 互不干扰。
+- **Result**: self-intro / knowledge QA / translation all normal, 8~11 tok/s.
+  - "你好，请用一句话介绍你自己" → "我是一个由Bilibili研发的大语言模型……"
+  - "把这句话翻译成英文：今天天气真不错" → "The weather is really nice today."
+- **Notes**: zero model-code changes (trust_remote_code), but the upstream custom modeling was written against the 2023-era transformers API — transformers ≥5.x normalizes `rope_scaling` into a new structure and the old code raises KeyError. Solution: isolated stack `/opt/tf452` (transformers 4.52.1 + huggingface_hub 0.36.2 + tokenizers 0.21 via `pip --target`), coexisting with the system 5.21 stack.
 
-## 🐛 发现并修复的 310P 内核缺陷（对本仓库外同样有复用价值）
+## 🐛 310P Kernel Bugs Found & Fixed (reusable beyond this repo)
 
-| 缺陷 | 现象 | 影响 | 修复 |
+| Bug | Symptom | Impact | Fix |
 |---|---|---|---|
-| **`conv_transpose1d(groups=C>64)` 输出错误**（op-plugin） | C=8/64 正常，C=384/768 静默错误，无报无警 | BigVGAN 声码输出 87% 饱和爆音 | matmul 等效实现，max\|d\|=0，反超原生内核速度 → [docs/conv-transpose1d-groups-bug.md](docs/conv-transpose1d-groups-bug.md) |
-| **`flash_attention_prefill` head_dim=256 aicore timeout**（vllm-ascend 310P 路径） | EZ9999 retCode=0x25，稳定复现 | vLLM 跑 Qwen3.5 被阻塞 | 绕行：transformers eager 路线 → [docs/llm-models-310p.md](docs/llm-models-310p.md) |
-| FFT/STFT/复数算子内核缺失 | aclnn 内核直接报错 | 含频域计算的模型 | CPU 化（小张量低频调用可忽略） |
-| SDPA 4D+mask ERR01007 | 格式转换错误 | 所有 sdpa 注意力 | `allow_internal_format=False`（causal 场景可用）或 eager |
+| **`conv_transpose1d(groups=C>64)` wrong results** (op-plugin) | C=8/64 fine, C=384/768 silently wrong, no warning | BigVGAN output 87% saturated noise | matmul-equivalent impl, max\|d\|=0, faster than native → [docs/conv-transpose1d-groups-bug.md](docs/conv-transpose1d-groups-bug.md) |
+| **`flash_attention_prefill` head_dim=256 aicore timeout** (vllm-ascend 310P path) | EZ9999 retCode=0x25, stable repro | vLLM serving of Qwen3.5 blocked | Workaround: transformers eager route → [docs/llm-models-310p.md](docs/llm-models-310p.md) |
+| FFT/STFT/complex ops missing | aclnn kernel errors directly | Models with spectral paths | CPU-ize (small tensors, low frequency) |
+| SDPA 4D+mask ERR01007 | Format-cast error | All sdpa attention | `allow_internal_format=False` (causal OK) or eager |
 
-通用三开关（310P torch_npu 必备）：
+The three switches every 310P torch_npu program needs:
 
 ```python
 import torch_npu
-from torch_npu.contrib import transfer_to_npu     # .cuda() 代码零改动映射到 npu
-torch.npu.config.allow_internal_format = False    # 修复 SDPA ERR01007
-torch.npu.set_compile_mode(jit_compile=False)     # 修复 polar/bincount/复数算子调度
+from torch_npu.contrib import transfer_to_npu     # maps .cuda() code to npu, zero changes
+torch.npu.config.allow_internal_format = False    # fixes SDPA ERR01007
+torch.npu.set_compile_mode(jit_compile=False)     # fixes polar/bincount/complex dispatch
 ```
 
-## 🤔 什么都没改就能跑吗？
+## 🤔 Did anything run with zero changes?
 
-严格说**没有**——310P 的硬件特性要求每个模型至少做环境级配置（三开关 + eager 注意力 + fp16）。但**边际成本可以为零**：Qwen3.5 底座一旦跑通一个（Translate-2B），其余同底座模型（Homura-2B、Nailong）**一行代码不用改**，只换模型路径；Translate-9B 也只多一个 `enable_thinking=False` 参数。
+Strictly **no** — 310P hardware quirks require at least environment-level config (three switches + eager attention + fp16). But the **marginal cost can be zero**: once one Qwen3.5-base model works (Translate-2B), sibling fine-tunes (Homura-2B, Nailong) run by only changing the model path; Translate-9B adds a single `enable_thinking=False` flag.
 
-## 🧪 测试方法与局限（如实说明）
+## 🧪 Test Methodology & Limitations (honest)
 
-- **IndexTTS-2.5 测得最完整**：客观指标（峰值/削波率/NaN/过零率）+ **ASR 回读闭环验证可懂度** + 双次合成计时。
-- **LLM 为冒烟级抽查**：三句固定语向人工核对译文 + tok/s 计时；**未跑** FloRES/COMET 标准翻译评测、未跑 MMLU/C-Eval、未测长文本稳定性与并发。速度为单请求贪心解码，未做批处理优化。
-- 未适配项（Echo/anisora/35B-A3B/Nailong）的结论基于架构分析而非实测，已在总表中注明。
+- **IndexTTS-2.5 got the deepest testing**: objective metrics (peak/clipping/NaN/ZCR) + **ASR round-trip for intelligibility** + double-run timing.
+- **LLMs are smoke-level**: three fixed sentences manually checked + tok/s timing; **no** FloRES/COMET, no MMLU/C-Eval, no long-text or concurrency testing. Speeds are single-request greedy decode, no batching.
+- Conclusions for unadapted models (Echo/anisora/35B-A3B/Nailong) are architecture-based analysis, not measurements — flagged in the matrix.
 
-## 🚀 快速开始
+## 🚧 Unfinished Attempts & Lessons Learned
 
-环境要求：Atlas 300I Duo（或 200I Pro），Docker，磁盘 ~15GB。
+> Failures and non-verified items are part of the deliverable: for each, we record the blocker, what was ruled out, and reusable experience — so nobody steps on the same rake twice.
+
+### 1. vLLM-Ascend serving of Qwen3.5 (not cleared, worked around)
+
+- **What works**: vLLM 0.30.0rc2 registers `Qwen3_5ForConditionalGeneration`; weights load fine (2B 6.1GB / 9B 18GB fp16); multimodal warmup passes (42s); the 310P attention backend selects normally (CUSTOM backend + LBNHC KV layout).
+- **Blocker**: during LM memory profiling the `flash_attention_prefill_24` kernel **aicore-timeouts** (EZ9999 retCode=0x25); reproduces at max_model_len 2048/4096 and on idle chips.
+- **What we tried**: `ASCEND_LAUNCH_BLOCKING=1` to localize the faulting kernel; ruled out chip occupancy and transient faults; attempted to probe `torch_npu._npu_flash_attention` directly — failed due to its strict calling conventions.
+- **Lessons**:
+  1. Low-level PTA private APIs have strict layout/mask conventions — **the reliable way to localize kernel faults is the upper engine + LAUNCH_BLOCKING**, not hand-rolled kernel calls;
+  2. The kernel is suspected to be shape-related (head_dim=256) — vllm-ascend RFC #7394 validated Qwen3.5 on 310P with the **CANN 26.0 POC image**, we used CANN 9.2. **Try the POC image first** when reproducing;
+  3. The RFC's W8A8 + msmodelslim quantization path is untried (needs the quant toolchain);
+  4. For offline use the transformers eager recipe is fully sufficient (this repo); for serving, wait for the kernel fix or use the POC image.
+
+### 2. Index-Translate-35B-A3B (MoE, not run)
+
+- **Blocker**: fp16 weights ~70GB > 44GB single chip; disk had <10GB left during adaptation so weights weren't downloaded.
+- **Lessons**: architecture (`Qwen3_5MoeForConditionalGeneration`) is same-family as 2B/9B and registered everywhere; the transformers eager recipe is expected to work as-is; community consensus is that MoE (3B active) is actually the *best-performing* tier on 310P. Feasible paths: **TP2 dual-chip fp16**, or W8A8 then single chip.
+
+### 3. Index-Nailong (229K long-doc translation, not run)
+
+- **Blocker**: 310P attention has no compressed-mask path; materializing the `[L, L]` fp16 mask at 229K context needs 100GB+ — physically impossible.
+- **Lessons**: the model itself matches the Translate recipe (expected to run), but its "whole-document in one shot" selling point dies on 310P; practical cap ~32K. The vllm-ascend 310P backend has a `support_compressed_mask` switch (`_310p/attention/attention_mask.py`) — **if verified working, this limit could be lifted significantly — unverified**.
+
+### 4. Index-Echo S2TT/S2ST (speech translation, not started)
+
+- **Blocker**: three-component joint adaptation (Qwen3-Omni AuT audio tower + Index-Translate decoder + CosyVoice3 generation) — ~3× the work of a single model; Omni multimodality adds more uncertainty on the 310P attention path.
+- **Lessons**: if transformers 5.x natively supports the AuT audio tower, the eager recipe should carry over; the omnirt runtime claims an ascend backend for IndexTTS, worth investigating; **recommend 910-class hardware**.
+
+### 5. Index-anisora (anime video generation, ruled out)
+
+- **Blocker**: 14B-class video diffusion (CogVideoX-5B / Wan2.1-14B base) — compute and memory both exceed the 310P product tier.
+- **Lessons**: only small diffusion models have 310P success cases; don't attempt video generation here.
+
+### 6. Engineering misc (network / deps)
+
+- Gitee mirrors' **LFS is a paid feature** — repo sample wavs couldn't be pulled → built reference audio from a public hf-mirror dataset (librispeech dummy);
+- raw.githubusercontent.com / jsDelivr unreachable from this host; **`gh-proxy.com` prefix proxy works** (used to fetch latest upstream);
+- ModelScope single-file API: `/api/v1/models/{org}/{repo}/repo?FilePath=x&Revision=master`, resumable via `curl -C -`; **watch out for sharded weights** (9B = 4 shards + `model.safetensors.index.json`; missing index fails with "no file named model.safetensors");
+- pypi.org unreachable; Tsinghua/Aliyun mirrors work; hf-mirror.com works (set `HF_ENDPOINT`).
+
+## 🚀 Quick Start
+
+Requirements: Atlas 300I Duo (or 200I Pro), Docker, ~15GB disk.
 
 ```bash
-# 1. 部署（克隆上游 index-tts + 打补丁 + 下载全部模型，国内自动走 ModelScope/hf-mirror）
+# 1. Deploy (clone upstream index-tts + patch + download all models; CN mirrors auto-selected)
 git clone https://github.com/green-hand-shandong/index-ascend310p.git
 cd index-ascend310p
 bash scripts/setup_all.sh workspace
 
-# 2. 启动 NPU 容器
+# 2. Start the NPU container
 docker run -d --name indextts-310p \
   --device /dev/davinci0 --device /dev/davinci_manager \
   --device /dev/devmm_svm --device /dev/hisi_hdc \
@@ -119,56 +161,47 @@ docker run -d --name indextts-310p \
   -v $PWD:/workspace -w /workspace \
   quay.io/ascend/vllm-ascend:v0.30.0rc2-310p sleep infinity
 
-# 3. IndexTTS-2.5 依赖 + 语音合成（REF_WAV = 3~15s 干净人声）
+# 3. IndexTTS-2.5 deps + speech synthesis (REF_WAV = 3~15s clean speech)
 bash scripts/docker_exec.sh indextts-310p \
-  'pip install transformers==4.52.1 tokenizers==0.21.0 ... -i https://pypi.tuna.tsinghua.edu.cn/simple'   # 完整列表见 scripts/setup_all.sh 末尾
+  'pip install transformers==4.52.1 tokenizers==0.21.0 ... -i https://pypi.tuna.tsinghua.edu.cn/simple'   # full list at the end of scripts/setup_all.sh
 bash scripts/docker_exec.sh indextts-310p \
   'REF_WAV=/workspace/your_voice.wav python tests/run_test.py out.wav "你好，昇腾！"'
 
-# 4. LLM 系（Qwen3.5 底座，系统栈直接跑）
+# 4. LLM family (Qwen3.5-based, system stack)
 bash scripts/docker_exec_vllm.sh indextts-310p /workspace \
   'python scripts/test_translate_hf.py /workspace/Index-Translate-2B'
 ```
 
-各模型权重均从 ModelScope / hf-mirror 下载：`IndexTeam/IndexTTS-2.5`（~6GB）、`IndexTeam/Index-Translate-2B`（4.6GB）、`IndexTeam/Index-Translate-9B`（19GB，4 分片）、`IndexTeam/Index-Homura-2B`（4.6GB）、`IndexTeam/Index-1.9B-Chat`（4.4GB）。
+Weights are pulled from ModelScope / hf-mirror: `IndexTeam/IndexTTS-2.5` (~6GB), `IndexTeam/Index-Translate-2B` (4.6GB), `IndexTeam/Index-Translate-9B` (19GB, 4 shards), `IndexTeam/Index-Homura-2B` (4.6GB), `IndexTeam/Index-1.9B-Chat` (4.4GB).
 
-## 📁 仓库结构
+## 📁 Repository Layout
 
 ```
-├── npu_compat.py        # NPU 兼容层（三开关 + FFT CPU 化 + convT 缺陷修复，import 即用）
-├── patches/             # 对上游 index-tts 的最小补丁（3 文件 ~10 行）
-├── scripts/             # 部署脚本 + 各模型测试脚本（TTS / Translate / Homura / 1.9B）
-├── tests/               # 端到端测试与音频验证（含 ASR 回读）
-├── probes/              # 7 个真机算子探针（复现内核缺陷的完整链路）
-└── docs/                # 310P 算子支持度报告 / convT 缺陷分析 / LLM 适配结论
+├── npu_compat.py        # NPU compat layer (three switches + FFT CPU-ization + convT fix, import & use)
+├── patches/             # minimal upstream index-tts patches (3 files, ~10 lines)
+├── scripts/             # deploy scripts + per-model test scripts (TTS / Translate / Homura / 1.9B)
+├── tests/               # e2e tests & audio validation (incl. ASR round-trip)
+├── probes/              # 7 on-device operator probes (full kernel-bug reproduction chain)
+└── docs/                # 310P operator support report / convT bug analysis / LLM adaptation notes
 ```
 
-## 🗺️ 后续方向
+## 🗺️ Roadmap
 
-- vLLM 服务化：等 vllm-ascend/CANN 修复 FA 内核，或试 CANN 26 POC 镜像 + W8A8 量化（RFC #7394 路径）
-- IndexTTS 性能：图模式 / DiT 蒸馏 / convT 等效实现用 Ascend C 重写
-- 35B-A3B 双芯片 TP2 实测、Nailong ≤32K 长文档实测
-- 补标准评测（FloRES/COMET、TTS MOS）
+- vLLM serving: retry on CANN 26 POC image + W8A8 (RFC #7394 path) or wait for the FA kernel fix
+- IndexTTS perf: graph mode / DiT distillation / Ascend C rewrite of the convT workaround
+- 35B-A3B dual-chip TP2 run; Nailong ≤32K long-doc run
+- Proper benchmarks (FloRES/COMET, TTS MOS)
 
-## 📄 许可与致谢
+## 📄 License & Acknowledgements
 
-- 本仓库（补丁、兼容层、脚本、探针、文档）：Apache-2.0（见 [LICENSE](LICENSE) / [NOTICE](NOTICE)）
-- 上游模型与代码：[index-tts](https://github.com/index-tts/index-tts)（Bilibili Model Use License），本仓库仅以 diff 分发修改；权重见各 ModelScope/HF 仓库
-- 依赖权重：[nvidia/bigvgan_v2_22khz_80band_256x](https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x)、[facebook/w2v-bert-2.0](https://huggingface.co/facebook/w2v-bert-2.0)、[amphion/MaskGCT](https://huggingface.co/amphion/MaskGCT)、[funasr/campplus](https://huggingface.co/funasr/campplus)
+- This repo (patches, compat layer, scripts, probes, docs): Apache-2.0 (see [LICENSE](LICENSE) / [NOTICE](NOTICE))
+- Upstream models & code: [index-tts](https://github.com/index-tts/index-tts) (Bilibili Model Use License); this repo distributes modifications as diffs only
+- Dependent weights: [nvidia/bigvgan_v2_22khz_80band_256x](https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x), [facebook/w2v-bert-2.0](https://huggingface.co/facebook/w2v-bert-2.0), [amphion/MaskGCT](https://huggingface.co/amphion/MaskGCT), [funasr/campplus](https://huggingface.co/funasr/campplus)
 
-> 注：GitCode 仓库 URL path 因平台限制仍为 `indextts-2.5-ascend310p`（显示名已更新），GitHub 为本仓库主地址且旧链接自动重定向。
+> Note: the GitCode mirror's URL path remains `indextts-2.5-ascend310p` due to platform limits (display name updated); GitHub is the canonical home with automatic redirects from old links.
 
 ---
 
-## English Summary
+## 简体中文摘要
 
-**All five flagship models from Bilibili's IndexTeam run end-to-end on a single Huawei Ascend 310P3 chip (Atlas 300I Duo, 44GB)**:
-
-| Model | Task | Result |
-|---|---|---|
-| IndexTTS-2.5 | Zero-shot voice-cloning TTS | RTF 5.6, zero clipping, ASR-roundtrip verified |
-| Index-Translate-2B / 9B | 150-language translation | 6~8 / 2.1~2.3 tok/s, all translation directions correct |
-| Index-Homura-2B | Syllable-controlled translation (dubbing) | 5.8~7.3 tok/s, **zero-change reuse** of the 2B recipe |
-| Index-1.9B-Chat | Conversational LLM | 8~11 tok/s, via isolated transformers 4.52 stack |
-
-Highlights: on-device 70-operator support matrix; **discovered & fixed an op-plugin kernel bug where `conv_transpose1d(groups>64)` silently returns wrong results** (zero-loss workaround, faster than native); documented the vLLM-Ascend `flash_attention_prefill` head_dim=256 aicore-timeout that currently blocks Qwen3.5 serving on 310P; everything works through a thin runtime compat layer plus ~10 lines of upstream patches. Scripts, probes and docs in this repo are fully reproducible.
+**B站 IndexTeam 的 5 个旗舰模型已全部在一颗华为昇腾 310P3（Atlas 300I Duo，44GB）上端到端跑通**：IndexTTS-2.5 语音合成（RTF 5.6、零削波、ASR 回读验证）、Index-Translate-2B/9B 翻译（6~8 / 2.1~2.3 tok/s，三个语向全部正确）、Index-Homura-2B（5.8~7.3 tok/s，零改动复用）、Index-1.9B-Chat（8~11 tok/s，隔离栈方案）。含 70 算子真机支持度实测、2 个厂商内核缺陷的定位与修复（`conv_transpose1d(groups>64)` 静默错误、`flash_attention_prefill` head_dim=256 超时）、以及未完成项的完整经验记录。**完整中文文档见 [README_zh.md](README_zh.md)**。
